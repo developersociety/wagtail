@@ -3,6 +3,11 @@ import { ChooserModal } from '../../includes/chooserModal';
 
 const PAGE_CHOOSER_MODAL_ONLOAD_HANDLERS = {
   browse(modal, jsonData) {
+    // Initialize or retrieve the multipleChoice Set from modal
+    if (!modal.multipleChoice) {
+      modal.multipleChoice = new Set();
+    }
+
     /* Set up link-types links to open in the modal */
     // eslint-disable-next-line func-names
     $('.link-types a', modal.body).on('click', function () {
@@ -27,7 +32,17 @@ const PAGE_CHOOSER_MODAL_ONLOAD_HANDLERS = {
     const initialPageResultsHtml = $('.page-results', modal.body).html();
 
     // Set up submissions of the "choose multiple items" form to open in the modal.
-    modal.ajaxifyForm($('form[data-multiple-choice-form]', modal.body));
+    const multipleChoiceForm = $('form[data-multiple-choice-form]', modal.body);
+    if (multipleChoiceForm.length) {
+      // Add hidden inputs for unchecked items before form submission
+      multipleChoiceForm.on('submit', function (e) {
+        if (!e.isDefaultPrevented()) {
+          PAGE_CHOOSER_MODAL_ONLOAD_HANDLERS.getMissingCheckboxes(modal, this);
+        }
+      });
+      // Set up AJAX form submission
+      modal.ajaxifyForm(multipleChoiceForm);
+    }
 
     let request;
 
@@ -43,6 +58,10 @@ const PAGE_CHOOSER_MODAL_ONLOAD_HANDLERS = {
           success(data) {
             request = null;
             $('.page-results', modal.body).html(data);
+            // Restore checkbox states for previously selected items
+            modal.multipleChoice.forEach((value) => {
+              $(`input[type="checkbox"][data-multiple-choice-select][value="${value}"]`, modal.body).prop('checked', true);
+            });
             // eslint-disable-next-line @typescript-eslint/no-use-before-define
             ajaxifySearchResults();
           },
@@ -53,6 +72,10 @@ const PAGE_CHOOSER_MODAL_ONLOAD_HANDLERS = {
       } else {
         /* search box is empty - restore original page browser HTML */
         $('.page-results', modal.body).html(initialPageResultsHtml);
+        // Restore checkbox states for previously selected items
+        modal.multipleChoice.forEach((value) => {
+          $(`input[type="checkbox"][data-multiple-choice-select][value="${value}"]`, modal.body).prop('checked', true);
+        });
         // eslint-disable-next-line @typescript-eslint/no-use-before-define
         ajaxifyBrowseResults();
       }
@@ -107,7 +130,12 @@ const PAGE_CHOOSER_MODAL_ONLOAD_HANDLERS = {
       });
 
       updateMultipleChoiceSubmitEnabledState();
-      $('[data-multiple-choice-select]', modal.body).on('change', () => {
+      $('[data-multiple-choice-select]', modal.body).on('change', function () {
+        if (this.checked) {
+          modal.multipleChoice.add(this.value);
+        } else {
+          modal.multipleChoice.delete(this.value);
+        }
         updateMultipleChoiceSubmitEnabledState();
       });
     }
@@ -139,7 +167,12 @@ const PAGE_CHOOSER_MODAL_ONLOAD_HANDLERS = {
       });
 
       updateMultipleChoiceSubmitEnabledState();
-      $('[data-multiple-choice-select]', modal.body).on('change', () => {
+      $('[data-multiple-choice-select]', modal.body).on('change', function () {
+        if (this.checked) {
+          modal.multipleChoice.add(this.value);
+        } else {
+          modal.multipleChoice.delete(this.value);
+        }
         updateMultipleChoiceSubmitEnabledState();
       });
     }
@@ -224,6 +257,19 @@ const PAGE_CHOOSER_MODAL_ONLOAD_HANDLERS = {
       modal.respond('pageChosen', jsonData.external);
       modal.close();
       return false;
+    });
+  },
+  getMissingCheckboxes(modal, form) {
+    // Create hidden inputs for unchecked items that were previously selected
+    modal.multipleChoice.forEach((value) => {
+      const checkbox = $(form).find(`input[type="checkbox"][data-multiple-choice-select][value="${value}"]`);
+      if (!checkbox.length || !checkbox.prop('checked')) {
+        const hiddenInput = document.createElement('input');
+        hiddenInput.type = 'hidden';
+        hiddenInput.name = 'id';
+        hiddenInput.value = value;
+        form.appendChild(hiddenInput);
+      }
     });
   },
 };

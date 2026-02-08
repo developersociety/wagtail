@@ -123,6 +123,7 @@ class SearchController {
       this.containerElement,
     );
     this.inputDelay = opts.inputDelay || 200;
+    this.multipleChoice = opts.multipleChoice || new Set();
 
     this.searchUrl = this.form.attr('action');
     this.request = null;
@@ -159,6 +160,15 @@ class SearchController {
       success: (resultsData) => {
         this.request = null;
         this.resultsContainer.html(resultsData);
+        // Restore checkbox states for previously selected items
+        this.multipleChoice.forEach((value) => {
+          const checkbox = this.resultsContainer[0].querySelector(
+            `input[type="checkbox"][data-multiple-choice-select][value="${value}"]`,
+          );
+          if (checkbox) {
+            checkbox.checked = true;
+          }
+        });
         if (this.onLoadResults) {
           this.onLoadResults(this.resultsContainer);
         }
@@ -210,6 +220,7 @@ class ChooserModalOnloadHandlerFactory {
     this.creationFormTitleFieldSelector = opts?.creationFormTitleFieldSelector;
     this.creationFormEventName = opts?.creationFormEventName;
 
+    this.multipleChoice = new Set();
     this.searchController = null;
   }
 
@@ -234,7 +245,12 @@ class ChooserModalOnloadHandlerFactory {
     if (this.modalHasTabs(modal)) initTabs();
 
     this.updateMultipleChoiceSubmitEnabledState(modal);
-    $('[data-multiple-choice-select]', containerElement).on('change', () => {
+    $('[data-multiple-choice-select]', containerElement).on('change', (event) => {
+      if (event.currentTarget.checked) {
+        this.multipleChoice.add(event.currentTarget.value);
+      } else {
+        this.multipleChoice.delete(event.currentTarget.value);
+      }
       this.updateMultipleChoiceSubmitEnabledState(modal);
     });
   }
@@ -286,6 +302,7 @@ class ChooserModalOnloadHandlerFactory {
         this.ajaxifyLinks(modal, containerElement);
       },
       inputDelay: this.searchInputDelay,
+      multipleChoice: this.multipleChoice,
     });
     this.searchInputSelectors.forEach((selector) => {
       this.searchController.attachSearchInput(selector);
@@ -300,7 +317,31 @@ class ChooserModalOnloadHandlerFactory {
     this.ajaxifyLinks(modal, modal.body);
     this.ajaxifyCreationForm(modal);
     // Set up submissions of the "choose multiple items" form to open in the modal.
-    modal.ajaxifyForm($('form[data-multiple-choice-form]', modal.body));
+    const multipleChoiceForm = $('form[data-multiple-choice-form]', modal.body);
+    if (multipleChoiceForm.length) {
+      // Add hidden inputs for unchecked items before form submission
+      multipleChoiceForm.on('submit', (event) => {
+        if (!event.isDefaultPrevented()) {
+          this.getMissingCheckboxes(event.target);
+        }
+      });
+      // Set up AJAX form submission
+      modal.ajaxifyForm(multipleChoiceForm);
+    }
+  }
+
+  getMissingCheckboxes(form) {
+    // Create hidden inputs for unchecked items that were previously selected
+    this.multipleChoice.forEach((value) => {
+      const checkbox = $(form).find(`input[type="checkbox"][data-multiple-choice-select][value="${value}"]`);
+      if (!checkbox.length || !checkbox.prop('checked')) {
+        const hiddenInput = document.createElement('input');
+        hiddenInput.type = 'hidden';
+        hiddenInput.name = 'id';
+        hiddenInput.value = value;
+        form.appendChild(hiddenInput);
+      }
+    });
   }
 
   onLoadChosenStep(modal, jsonData) {
